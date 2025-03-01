@@ -20,7 +20,7 @@ bot = telebot.TeleBot(API_KEY)
 
 # 🟢 المعرفات الثابتة
 DEV_ID = "1622270145"
-ALLOWED_GROUP_ID = -1002488472845
+ALLOWED_GROUP_ID = -1001797600488 
 DEV_USERNAME = "@WaelKhaled3"
 CHANNEL_USERNAME = "@techno_syria"
 TECH_GROUP = "@techno_syria1"
