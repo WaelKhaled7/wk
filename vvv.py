@@ -13,20 +13,20 @@ from deep_translator import GoogleTranslator
 from bs4 import BeautifulSoup
 from functools import lru_cache
 from urllib.parse import urljoin
+import asyncio
+import aiohttp
 
 # 🟢 إعدادات البوت
 API_KEY = "1624636642:AAG6xhQ3fno7_N6JID_6B_qlKGXddA4IuTQ"
 bot = telebot.TeleBot(API_KEY)
-
-# 🟢 المعرفات الثابتة
 DEV_ID = "1622270145"
-ALLOWED_GROUP_ID = -1001797600488 
+ALLOWED_GROUP_ID = -1002488472845
 DEV_USERNAME = "@WaelKhaled3"
 CHANNEL_USERNAME = "@techno_syria"
 TECH_GROUP = "@techno_syria1"
 MOVIES_CHANNEL = "@movies_techno"
 ADMIN_IDS = {int(DEV_ID)}
-
+ALLOWED_GROUPS = {ALLOWED_GROUP_ID}
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 GEMINI_API_KEY = "AIzaSyBg0JhMDyD1oXCQ23kGwy0XPxhr6btZqwg"
 OMDB_API_KEY = "5dcfe76e"
@@ -37,28 +37,15 @@ logging.basicConfig(filename='bot_errors.log', level=logging.INFO, format='%(asc
 
 # 🟢 قوائم الانتظار والردود العشوائية
 WAITING_EMOJIS = ["🎬", "🍿", "🔍", "📝", "🔎", "📺", "💡"]
-WAITING_SYRIAN_RESPONSES = [
-    "طووول بالك، رح شفلك شي حلو!",
-    "لحظة يا زلمة، رح جيبلك شي بجنن!",
-    "خليك هون، جايبلك ترشيح بجنن!"
-]
-IMDB_WAITING = "🎥 طول بالك رح جبلك التفاصيل!"
-SYRIAN_RESPONSES = [
-    "جربو اذا ماعجبك رجعلي ياه",
-    "شوف هاد و ادعيلي!",
-    "هلق جبتلك شي بياخد العقل!"
-]
-RANDOM_RESPONSES = [
-    "شوف هاد، بيستاهل تشوفو!",
-    "جرب جرب، ما رح تندم!",
-    "هاد طلع عشوائي بس بيجنن!"
-]
-PRIVATE_RESPONSE = "اهلييين، أنا هون للمجموعة بس، تعا جربني هناك!"
-INVALID_INPUT_RESPONSE = "ياعيني، هاد مو اسم فيلم، جرب شي جدي!"
-SMART_INVALID_RESPONSE = "ياعيني، هاد شي غريب! جرب شي عن الأفلام أو المسلسلات بدل هالكلام العجيب 😂"
-INLINE_MIN_CHARS_RESPONSE = "يجب عليك كتابة امثر من 3 احرف لإظهار النتائج"
-INLINE_MORE_CHARS_RESPONSE = "اكتب المزيد"
-ONLY_PRIVATE_RESPONSE = "<b>هذا الأمر متاح فقط في الخاص</b>\n<i>بسبب الحرق والمصايب، تعا جربني! 🥲</i>"
+WAITING_SYRIAN_RESPONSES = ["طووول بالك، رح رشحلك طول بالك 😂❤️", "عد للخمسة وبكون خلصت 🥲!", "خليك هون، جايبلك شي بجنن!"]
+IMDB_WAITING = "🎥 لحظة وبجبلك التفاصيل"
+SYRIAN_RESPONSES = ["هاد اللي لقيتو ياغالي !", "شوف هاد، بضمنلك يعجبك !", "هلق جبتلك شي بياخد العقل!"]
+RANDOM_RESPONSES = ["شوف هاد، بيستاهل وقتك!", "شوف هاد اذا ماعجبك رجعلي ياه 😂", "لعبتي العشوائية خود هاد 😂👇"]
+PRIVATE_RESPONSE = "اهلييين، أنا هون للمجموعة بس، تعا جربني !"
+INVALID_INPUT_RESPONSE = "ياعيني، هاد مو اسم فيلم، جرب شي منطقي!"
+SMART_INVALID_RESPONSE = "ياعيني، هاد شي غريب! جرب شي عن الأفلام أو المسلسلات 😂"
+INLINE_MIN_CHARS_RESPONSE = "اكتب ٣ أحرف على الأقل !"
+ONLY_PRIVATE_RESPONSE = "<b>هذا الأمر متاح فقط في الخاص</b>\n<i>بسبب الحرق والمصايب، تعا خاص لحالنا 😂! 🥲</i>"
 
 # 🟢 ذاكرة مؤقتة وقوائم الأوامر المفعلة
 user_last_request = {}
@@ -81,7 +68,7 @@ COMMON_NAMES = {"أحمد", "محمد", "علي", "حسن", "خالد", "مرح�
 KNOWN_TITLES = {
     "fight club", "inception", "the matrix", "vikings", "breaking bad", "hannibal", 
     "the walking dead", "interstellar", "pulp fiction", "fast x", "the dark knight", 
-    "game of thrones", "stranger things", "dangerous dynasty house of assad"
+    "game of thrones", "stranger things", "dangerous dynasty house of assad", "see"
 }
 
 # 🟢 نظام إدارة الذاكرة
@@ -99,7 +86,7 @@ threading.Thread(target=clean_old_messages, daemon=True).start()
 
 # 🟢 التحقق من السماحية والأدمن
 def is_allowed(chat_id):
-    return chat_id == int(DEV_ID) or chat_id == ALLOWED_GROUP_ID
+    return chat_id == int(DEV_ID) or chat_id in ALLOWED_GROUPS
 
 def is_admin(user_id):
     return user_id in ADMIN_IDS
@@ -118,40 +105,40 @@ def smart_validate_input(input_text):
     input_lower = input_text.lower().replace(" ", "")
     if any(input_lower in title.replace(" ", "") for title in KNOWN_TITLES):
         return True
+    if re.search(r"فيلم|مسلسل|وثائقي|actor|movie|series", input_text.lower()):
+        return True
     response = get_gemini_response(f"هل '{input_text}' مرتبط بأفلام أو مسلسلات أو وثائقيات؟ أجب بـ 'نعم' أو 'لا' فقط.", retries=1)
     return response and response.strip().lower() == "نعم"
 
-# 🟢 تنسيق الردود مع ترتيب ودمج <b> و<i>
+# 🟢 تنسيق الردود مع ترتيب ودمج <b> و<i> (محسن لإزالة الفراغ)
 def format_response(response, keep_english_titles=False):
     if not response:
-        return "<b> السيرفر مشغول حالياً</b>"
+        return "<b>⚡ السيرفر مشغول حالياً</b>"
     
-    response = re.sub(r"[\*_\`\[\]#]", "", response)
-    response = re.sub(r"^(بالطبع!|إليك\s+|.*أتمنى.*|Here is|Sure|Of course|Behold)", "", response, flags=re.IGNORECASE).strip()
-    lines = response.split("\n")
+    robotic_phrases = ["بالطبع!", "إليك", "أتمنى", "Here is", "Sure", "Of course", "Behold", "أوصي", "توصية", "استمتع بالمشاهدة", "لماذا", "أقترح", "ها هي"]
+    for phrase in robotic_phrases:
+        response = re.sub(rf"^{phrase}\s*|\s*{phrase}$", "", response, flags=re.IGNORECASE).strip()
+    
+    response = re.sub(r"[\*_\`\[\]#]", "", response).strip()
+    lines = [line.strip() for line in response.split("\n") if line.strip()]
     formatted = []
-    current_title = None
     
     for line in lines:
-        line = escape(line.strip())
-        if re.match(r"^(فيلم|مسلسل|وثائقي|\".*\")", line) or (keep_english_titles and re.match(r"^\w.*$", line.strip())):
+        line = escape(line)
+        if re.match(r"^(فيلم|مسلسل|وثائقي|\".*\")", line) or (keep_english_titles and re.match(r"^\w.*$", line)):
             title = re.search(r"\"(.*?)\"", line)
             title = title.group(1) if title else line
             translated_title = title if keep_english_titles else GoogleTranslator(source='auto', target='ar').translate(title)
-            formatted.append(f"<b>{translated_title}</b>")
-            current_title = translated_title
+            formatted.append(f"<b><i>{translated_title}</i></b>")
         else:
-            translated = GoogleTranslator(source='auto', target='ar').translate(line) if line.strip() else line
-            formatted.append(f"<i>{translated}</i>")
+            translated = GoogleTranslator(source='auto', target='ar').translate(line) if line else line
+            formatted.append(f"<b><i>{translated}</i></b>")
     
     output = []
     for i, line in enumerate(formatted):
-        if line.startswith("<b>"):
-            if i > 0:
-                output.append("")
-            output.append(line)
-        else:
-            output.append(line)
+        if i > 0 and line.startswith("<b><i>"):
+            output.append("")
+        output.append(line)
     
     return "\n".join(output)
 
@@ -165,33 +152,35 @@ def check_internet_connection():
         return False
 
 # 🟢 الحصول على رد من Gemini
-def get_gemini_response(user_input, retries=3, delay=2):
+async def get_gemini_response_async(user_input, retries=3, delay=2):
     if not check_internet_connection():
         logging.error("⚠️ لا يوجد اتصال بالإنترنت.")
         return None
     
     headers = {"Content-Type": "application/json"}
     params = {"key": GEMINI_API_KEY}
-    data = {
-        "contents": [{"parts": [{"text": user_input}]}],
-        "generationConfig": {"temperature": 1, "topP": 0.95, "topK": 40, "maxOutputTokens": 8192}
-    }
+    data = {"contents": [{"parts": [{"text": user_input}]}], "generationConfig": {"temperature": 1, "topP": 0.95, "topK": 40, "maxOutputTokens": 8192}}
     
-    for attempt in range(retries):
-        try:
-            response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=data, timeout=10)
-            if response.status_code == 200:
-                return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-            elif response.status_code == 429:
-                logging.error("⚠️ Gemini: الكثير من الطلبات.")
-                time.sleep(delay * (attempt + 1))
-            else:
-                logging.error(f"⚠️ Gemini Error: {response.status_code} - {response.text}")
-                time.sleep(delay)
-        except Exception as e:
-            logging.error(f"⚠️ Gemini Exception (Attempt {attempt + 1}): {e}")
-            time.sleep(delay)
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(retries):
+            try:
+                async with session.post(GEMINI_API_URL, headers=headers, params=params, json=data, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    elif response.status == 429:
+                        logging.error("⚠️ Gemini: الكثير من الطلبات.")
+                        await asyncio.sleep(delay * (attempt + 1))
+                    else:
+                        logging.error(f"⚠️ Gemini Error: {response.status} - {await response.text()}")
+                        await asyncio.sleep(delay)
+            except Exception as e:
+                logging.error(f"⚠️ Gemini Exception (Attempt {attempt + 1}): {e}")
+                await asyncio.sleep(delay)
     return None
+
+def get_gemini_response(user_input, retries=3, delay=2):
+    return asyncio.run(get_gemini_response_async(user_input, retries, delay))
 
 # 🟢 تذييل عشوائي
 def get_random_footer():
@@ -199,7 +188,7 @@ def get_random_footer():
 
 # 🟢 التحقق من صحة الطلب
 def is_valid_request(text):
-    keywords = ["فيلم", "مسلسل", "أفلام", "مسلسلات", "دراما", "أكشن", "كوميدي", "رعب", "خيال علمي", "وثائقي"]
+    keywords = ["فيلم", "مسلسل", "أفلام", "مسلسلات", "دراما", "أكشن", "كوميدي", "رعب", "خيال علمي", "وثائقي", "فلم", "اكشن", "جريمة", "غموض"]
     return any(keyword in text.lower() for keyword in keywords)
 
 # 🟢 نظام منع التحايل
@@ -210,7 +199,7 @@ def is_rate_limited(user_id):
     user_request_times[user_id] = current_time
     return False
 
-# 🟢 البحث في OMDb مع تصحيح متقدم
+# 🟢 البحث في OMDb
 def search_omdb(query):
     corrected_query = correct_spelling(query)
     params = {"apikey": OMDB_API_KEY, "t": corrected_query, "plot": "short", "r": "json"}
@@ -227,12 +216,9 @@ def search_omdb(query):
 
 # 🟢 تصحيح إملائي متقدم
 def correct_spelling(query):
-    movie_titles = [
-        "The Godfather", "Inception", "The Matrix", "Vikings", "Breaking Bad", 
-        "Hannibal", "The Walking Dead", "Interstellar", "Fight Club", "Pulp Fiction",
-        "Fast X", "The Dark Knight", "Game of Thrones", "Stranger Things",
-        "Dangerous Dynasty House of Assad"
-    ]
+    movie_titles = ["The Godfather", "Inception", "The Matrix", "Vikings", "Breaking Bad", "Hannibal", 
+                    "The Walking Dead", "Interstellar", "Fight Club", "Pulp Fiction", "Fast X", 
+                    "The Dark Knight", "Game of Thrones", "Stranger Things", "Dangerous Dynasty House of Assad", "See"]
     query_lower = query.lower().replace(" ", "")
     for title in movie_titles:
         title_lower = title.lower().replace(" ", "")
@@ -240,7 +226,7 @@ def correct_spelling(query):
             return title
     return query
 
-# 🟢 Inline Query محسّنة (3 نتائج متقاربة مع بوسترات)
+# 🟢 Inline Query محسّنة (3 نتائج مشابهة نفس رد /imdb)
 @bot.inline_handler(func=lambda query: True)
 def handle_inline_query(query):
     query_text = query.query.strip()
@@ -250,17 +236,18 @@ def handle_inline_query(query):
             id=str(random.randint(1, 1000000)),
             photo_url="https://via.placeholder.com/150",
             thumbnail_url="https://via.placeholder.com/150",
-            caption=f"<b>{INLINE_MIN_CHARS_RESPONSE}</b>",
+            caption="<b>اكتب اسم فيلم أو مسلسل (حرفين على الأقل)!</b>",
             parse_mode="HTML"
         )
         bot.answer_inline_query(query.id, [result], cache_time=1)
         return
-    elif len(query_text) == 2:
+    
+    if len(query_text) < 3:
         result = InlineQueryResultPhoto(
             id=str(random.randint(1, 1000000)),
             photo_url="https://via.placeholder.com/150",
             thumbnail_url="https://via.placeholder.com/150",
-            caption=f"<b>{INLINE_MORE_CHARS_RESPONSE}</b>",
+            caption="<b>شوي كمان، اكتب 3 أحرف على الأقل لنتيجة أفضل!</b>",
             parse_mode="HTML"
         )
         bot.answer_inline_query(query.id, [result], cache_time=1)
@@ -285,204 +272,6 @@ def handle_inline_query(query):
     response = search_omdb(query_text)
     if response and response.get("Response") == "True":
         title = response.get("Title")
-        imdb_id = response.get("imdbID")
-        poster_url = response.get("Poster", "https://via.placeholder.com/150") if response.get("Poster") != "N/A" else "https://via.placeholder.com/150"
-        imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
-        
-        reply_text = f"<b>{title}</b>"
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("📄 IMDb", url=imdb_url))
-        
-        result = InlineQueryResultPhoto(
-            id=imdb_id,
-            photo_url=poster_url,
-            thumbnail_url=poster_url,
-            caption=reply_text[:1024],
-            parse_mode="HTML",
-            reply_markup=markup
-        )
-        results.append(result)
-        seen_ids.add(imdb_id)
-    
-    # إضافة نتائج قريبة (حتى 3)
-    movie_titles = [
-        "The Godfather", "Inception", "The Matrix", "Vikings", "Breaking Bad", 
-        "Hannibal", "The Walking Dead", "Interstellar", "Fight Club", "Pulp Fiction",
-        "Fast X", "The Dark Knight", "Game of Thrones", "Stranger Things",
-        "Dangerous Dynasty House of Assad"
-    ]
-    query_lower = query_text.lower().replace(" ", "")
-    for title in movie_titles:
-        if len(results) >= 3:
-            break
-        title_lower = title.lower().replace(" ", "")
-        if query_lower in title_lower and title not in [r.caption.replace("<b>", "").replace("</b>", "") for r in results]:
-            response = search_omdb(title)
-            if response and response.get("Response") == "True":
-                title = response.get("Title")
-                imdb_id = response.get("imdbID")
-                poster_url = response.get("Poster", "https://via.placeholder.com/150") if response.get("Poster") != "N/A" else "https://via.placeholder.com/150"
-                imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
-                
-                if imdb_id not in seen_ids:
-                    reply_text = f"<b>{title}</b>"
-                    markup = InlineKeyboardMarkup()
-                    markup.add(InlineKeyboardButton("📄 IMDb", url=imdb_url))
-                    
-                    result = InlineQueryResultPhoto(
-                        id=imdb_id,
-                        photo_url=poster_url,
-                        thumbnail_url=poster_url,
-                        caption=reply_text[:1024],
-                        parse_mode="HTML",
-                        reply_markup=markup
-                    )
-                    results.append(result)
-                    seen_ids.add(imdb_id)
-    
-    inline_cache[query_text] = results
-    try:
-        bot.answer_inline_query(query.id, results[:3], cache_time=1, is_personal=False)  # عرض 3 نتائج بشكل عرضي
-    except Exception as e:
-        logging.error(f"⚠️ Inline Query Error: {e}")
-
-# 🟢 /random محسّن
-@bot.message_handler(commands=['random'])
-def handle_random(message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    if user_id in banned_users or user_id in muted_users:
-        bot.reply_to(message, "<b>⚠️ تم حظرك أو كتمك!</b>", parse_mode="HTML")
-        return
-    
-    user_count.add(user_id)
-    if not is_allowed(chat_id) and "/random" not in enabled_commands and not is_admin(user_id):
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🌟 جربني في المجموعة", url="https://t.me/wk_paid"))
-        markup.add(InlineKeyboardButton("المطور", url=f"https://t.me/{DEV_USERNAME[1:]}"))
-        markup.add(InlineKeyboardButton("قناة البوت", url=f"https://t.me/{CHANNEL_USERNAME[1:]}"))
-        bot.reply_to(message, PRIVATE_RESPONSE, parse_mode="HTML", reply_markup=markup)
-        return
-    
-    if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
-        return
-    
-    waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
-    movie_response = get_gemini_response(f"أعطني توصية لفيلم عشوائي مع قصة مختصرة (غير {list(suggested_movies)[-1] if suggested_movies else ''})")
-    series_response = get_gemini_response(f"أعطني توصية لمسلسل عشوائي مع قصة مختصرة (غير {list(suggested_series)[-1] if suggested_series else ''})")
-    bot.delete_message(chat_id, waiting_message.message_id)
-    
-    if not movie_response or not series_response:
-        bot.reply_to(message, "<b>⚡ السيرفر مشغول حالياً</b>", parse_mode="HTML")
-        return
-    
-    formatted_movie = format_response(movie_response, keep_english_titles=True)
-    formatted_series = format_response(series_response, keep_english_titles=True)
-    suggested_movies.add(movie_response.split("\n")[0])
-    suggested_series.add(series_response.split("\n")[0])
-    
-    reply_text = (
-        f"<b>{random.choice(RANDOM_RESPONSES)}</b>\n\n"
-        f"{formatted_movie}\n\n"
-        f"{formatted_series}\n\n"
-        f"<i>{get_random_footer()}</i>"
-    )
-    bot.reply_to(message, reply_text, parse_mode="HTML")
-
-# 🟢 /suggest محسّن مع التحقق الذكي
-@bot.message_handler(commands=['suggest'])
-def handle_suggest(message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    if user_id in banned_users or user_id in muted_users:
-        bot.reply_to(message, "<b>⚠️ تم حظرك أو كتمك!</b>", parse_mode="HTML")
-        return
-    
-    user_count.add(user_id)
-    if not is_allowed(chat_id) and "/suggest" not in enabled_commands and not is_admin(user_id):
-        markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("🌟 جربني في المجموعة", url="https://t.me/wk_paid"))
-        markup.add(InlineKeyboardButton("المطور", url=f"https://t.me/{DEV_USERNAME[1:]}"))
-        markup.add(InlineKeyboardButton("قناة البوت", url=f"https://t.me/{CHANNEL_USERNAME[1:]}"))
-        bot.reply_to(message, PRIVATE_RESPONSE, parse_mode="HTML", reply_markup=markup)
-        return
-    
-    if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
-        return
-    
-    text = message.text.strip().split(maxsplit=1)
-    if len(text) == 1 or not is_valid_request(text[1]):
-        bot.reply_to(message, "<b>⚠️ حدد نوع التوصية</b>\n<i>مثال: /suggest رعب</i>", parse_mode="HTML")
-        return
-    
-    genre = text[1].strip()
-    if not smart_validate_input(genre):
-        bot.reply_to(message, SMART_INVALID_RESPONSE, parse_mode="HTML")
-        return
-    
-    waiting_message = bot.reply_to(message, random.choice(WAITING_SYRIAN_RESPONSES))
-    response = get_gemini_response(f"أعطني توصية لفيلم ومسلسل من نوع {genre} مع قصة مختصرة")
-    bot.delete_message(chat_id, waiting_message.message_id)
-    
-    if not response:
-        bot.reply_to(message, "<b>⚡ السيرفر مشغول حالياً</b>", parse_mode="HTML")
-        return
-    
-    formatted_response = format_response(response, keep_english_titles=True)
-    reply_text = f"<b>{random.choice(SYRIAN_RESPONSES)}</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
-    bot.reply_to(message, reply_text, parse_mode="HTML")
-
-# 🟢 /imdb محسّن
-@bot.message_handler(commands=['imdb'])
-def handle_imdb(message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    if user_id in banned_users or user_id in muted_users:
-        bot.reply_to(message, "<b>⚠️ تم حظرك أو كتمك!</b>", parse_mode="HTML")
-        return
-    
-    user_count.add(user_id)
-    if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
-        return
-    
-    text = message.text.strip().split(maxsplit=1)
-    if len(text) == 1:
-        bot.reply_to(message, "<b>⚠️ حدد اسم الفيلم</b>\n<i>مثال: /imdb Fast X</i>", parse_mode="HTML")
-        return
-    
-    query = text[1].strip()
-    waiting_message = bot.reply_to(message, IMDB_WAITING)
-    
-    try:
-        response = search_omdb(query)
-        if not response or response.get("Response") != "True":
-            movie_titles = [
-                "The Godfather", "Inception", "The Matrix", "Vikings", "Breaking Bad", 
-                "Hannibal", "The Walking Dead", "Interstellar", "Fight Club", "Pulp Fiction",
-                "Fast X", "The Dark Knight", "Game of Thrones", "Stranger Things",
-                "Dangerous Dynasty House of Assad"
-            ]
-            results = []
-            query_lower = query.lower().replace(" ", "")
-            for title in movie_titles:
-                title_lower = title.lower().replace(" ", "")
-                if query_lower in title_lower or sum(c1 == c2 for c1, c2 in zip(query_lower, title_lower)) > len(query_lower) * 0.7:
-                    alt_response = search_omdb(title)
-                    if alt_response and alt_response.get("Response") == "True":
-                        results.append(alt_response)
-                        break
-            
-            if not results:
-                bot.delete_message(chat_id, waiting_message.message_id)
-                bot.reply_to(message, "<b>⚡ ما لقيت شي، جرب اسم تاني!</b>", parse_mode="HTML")
-                return
-            
-            response = results[0]
-        
-        title = response.get("Title")
         plot = GoogleTranslator(source='auto', target='ar').translate(response.get("Plot", "غير متوفر"))
         year = response.get("Year", "غير معروف")
         rating = response.get("imdbRating", "غير معروف")
@@ -502,12 +291,239 @@ def handle_imdb(message):
             f"<i>🎭 النوع: {genre}</i>\n"
             f"<i>⏱️ المدة: {runtime}</i>\n"
             f"<i>🎥 الإخراج: {director}</i>\n"
+            f"<i>🌟 البطولة: {actors}</i>"
+        )
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("📄 صفحة IMDb", url=imdb_url))
+        markup.add(InlineKeyboardButton("🎬 فيلم مشابه", callback_data=f"similar:{title}"))
+        
+        result = InlineQueryResultPhoto(
+            id=imdb_id,
+            photo_url=poster_url,
+            thumbnail_url=poster_url,
+            caption=reply_text[:1024],
+            parse_mode="HTML",
+            reply_markup=markup
+        )
+        results.append(result)
+        seen_ids.add(imdb_id)
+    
+    # إضافة نتائج مشابهة (حتى 3)
+    movie_titles = ["The Godfather", "Inception", "The Matrix", "Vikings", "Breaking Bad", "Hannibal", 
+                    "The Walking Dead", "Interstellar", "Fight Club", "Pulp Fiction", "Fast X", 
+                    "The Dark Knight", "Game of Thrones", "Stranger Things", "Dangerous Dynasty House of Assad", "See"]
+    query_lower = query_text.lower().replace(" ", "")
+    for title in movie_titles:
+        if len(results) >= 3:
+            break
+        title_lower = title.lower().replace(" ", "")
+        if query_lower in title_lower and title not in [r.caption.split("\n")[0].replace("<b>", "").replace("</b>", "") for r in results]:
+            response = search_omdb(title)
+            if response and response.get("Response") == "True":
+                imdb_id = response.get("imdbID")
+                if imdb_id not in seen_ids:
+                    plot = GoogleTranslator(source='auto', target='ar').translate(response.get("Plot", "غير متوفر"))
+                    year = response.get("Year", "غير معروف")
+                    rating = response.get("imdbRating", "غير معروف")
+                    genre = GoogleTranslator(source='auto', target='ar').translate(response.get("Genre", "غير معروف"))
+                    runtime = response.get("Runtime", "غير معروف")
+                    director = GoogleTranslator(source='auto', target='ar').translate(response.get("Director", "غير معروف"))
+                    actors = response.get("Actors", "غير معروف")
+                    poster_url = response.get("Poster", "https://via.placeholder.com/150") if response.get("Poster") != "N/A" else "https://via.placeholder.com/150"
+                    imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
+                    
+                    reply_text = (
+                        f"<b>{title}</b>\n"
+                        f"<i>{plot}</i>\n"
+                        f"<i>📅 السنة: {year}</i>\n"
+                        f"<i>⭐ التقييم: {rating}/10</i>\n"
+                        f"<i>🎭 النوع: {genre}</i>\n"
+                        f"<i>⏱️ المدة: {runtime}</i>\n"
+                        f"<i>🎥 الإخراج: {director}</i>\n"
+                        f"<i>🌟 البطولة: {actors}</i>"
+                    )
+                    markup = InlineKeyboardMarkup()
+                    markup.add(InlineKeyboardButton("📄 صفحة IMDb", url=imdb_url))
+                    markup.add(InlineKeyboardButton("🎬 فيلم مشابه", callback_data=f"similar:{title}"))
+                    
+                    result = InlineQueryResultPhoto(
+                        id=imdb_id,
+                        photo_url=poster_url,
+                        thumbnail_url=poster_url,
+                        caption=reply_text[:1024],
+                        parse_mode="HTML",
+                        reply_markup=markup
+                    )
+                    results.append(result)
+                    seen_ids.add(imdb_id)
+    
+    inline_cache[query_text] = results
+    try:
+        bot.answer_inline_query(query.id, results[:3], cache_time=1, is_personal=False)
+    except Exception as e:
+        logging.error(f"⚠️ Inline Query Error: {e}")
+
+# 🟢 /random
+@bot.message_handler(commands=['random'])
+def handle_random(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    if user_id in banned_users or user_id in muted_users:
+        bot.reply_to(message, "<b>⚠️ تم حظرك أو كتمك!</b>", parse_mode="HTML")
+        return
+    
+    user_count.add(user_id)
+    if not is_allowed(chat_id) and "/random" not in enabled_commands and not is_admin(user_id):
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🌟 جربني في المجموعة", url="https://t.me/wk_paid"))
+        markup.add(InlineKeyboardButton("المطور", url=f"https://t.me/{DEV_USERNAME[1:]}"))
+        markup.add(InlineKeyboardButton("قناة البوت", url=f"https://t.me/{CHANNEL_USERNAME[1:]}"))
+        bot.reply_to(message, PRIVATE_RESPONSE, parse_mode="HTML", reply_markup=markup)
+        return
+    
+    if is_rate_limited(user_id):
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
+        return
+    
+    waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
+    movie_response = get_gemini_response(f"فيلم عشوائي مع قصة مختصرة (غير {list(suggested_movies)[-1] if suggested_movies else ''})")
+    series_response = get_gemini_response(f"مسلسل عشوائي مع قصة مختصرة (غير {list(suggested_series)[-1] if suggested_series else ''})")
+    bot.delete_message(chat_id, waiting_message.message_id)
+    
+    if not movie_response or not series_response:
+        bot.reply_to(message, "<b>⚡ السيرفر مشغول حالياً</b>", parse_mode="HTML")
+        return
+    
+    formatted_movie = format_response(movie_response, keep_english_titles=True)
+    formatted_series = format_response(series_response, keep_english_titles=True)
+    suggested_movies.add(movie_response.split("\n")[0])
+    suggested_series.add(series_response.split("\n")[0])
+    
+    reply_text = (
+        f"<b>{random.choice(RANDOM_RESPONSES)}</b>\n\n"
+        f"{formatted_movie}\n\n"
+        f"{formatted_series}\n\n"
+        f"<i>{get_random_footer()}</i>"
+    )
+    bot.reply_to(message, reply_text, parse_mode="HTML")
+
+# 🟢 /suggest
+@bot.message_handler(commands=['suggest'])
+def handle_suggest(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    if user_id in banned_users or user_id in muted_users:
+        bot.reply_to(message, "<b>⚠️ تم حظرك أو كتمك!</b>", parse_mode="HTML")
+        return
+    
+    user_count.add(user_id)
+    if not is_allowed(chat_id) and "/suggest" not in enabled_commands and not is_admin(user_id):
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🌟 جربني في المجموعة", url="https://t.me/wk_paid"))
+        markup.add(InlineKeyboardButton("المطور", url=f"https://t.me/{DEV_USERNAME[1:]}"))
+        markup.add(InlineKeyboardButton("قناة البوت", url=f"https://t.me/{CHANNEL_USERNAME[1:]}"))
+        bot.reply_to(message, PRIVATE_RESPONSE, parse_mode="HTML", reply_markup=markup)
+        return
+    
+    if is_rate_limited(user_id):
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
+        return
+    
+    text = message.text.strip().split(maxsplit=1)
+    if len(text) == 1 or not is_valid_request(text[1]):
+        bot.reply_to(message, "<b>⚠️ حدد نوع التوصية</b>\n<i>مثال: /suggest رعب</i>", parse_mode="HTML")
+        return
+    
+    genre = text[1].strip()
+    if not smart_validate_input(genre):
+        bot.reply_to(message, SMART_INVALID_RESPONSE, parse_mode="HTML")
+        return
+    
+    waiting_message = bot.reply_to(message, random.choice(WAITING_SYRIAN_RESPONSES))
+    response = get_gemini_response(f"فيلم ومسلسل من نوع {genre} مع قصة مختصرة")
+    bot.delete_message(chat_id, waiting_message.message_id)
+    
+    if not response:
+        bot.reply_to(message, "<b>⚡ السيرفر مشغول حالياً</b>", parse_mode="HTML")
+        return
+    
+    formatted_response = format_response(response, keep_english_titles=True)
+    reply_text = f"<b>{random.choice(SYRIAN_RESPONSES)}</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
+    bot.reply_to(message, reply_text, parse_mode="HTML")
+
+# 🟢 /imdb (عنوان بالإنجليزي)
+@bot.message_handler(commands=['imdb'])
+def handle_imdb(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    if user_id in banned_users or user_id in muted_users:
+        bot.reply_to(message, "<b>⚠️ تم حظرك أو كتمك!</b>", parse_mode="HTML")
+        return
+    
+    user_count.add(user_id)
+    if is_rate_limited(user_id):
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
+        return
+    
+    text = message.text.strip().split(maxsplit=1)
+    if len(text) == 1:
+        bot.reply_to(message, "<b>⚠️ حدد اسم الفيلم</b>\n<code>مثال: /imdb Fast X</code>", parse_mode="HTML")
+        return
+    
+    query = text[1].strip()
+    waiting_message = bot.reply_to(message, IMDB_WAITING)
+    
+    try:
+        response = search_omdb(query)
+        if not response or response.get("Response") != "True":
+            movie_titles = ["The Godfather", "Inception", "The Matrix", "Vikings", "Breaking Bad", 
+                            "Hannibal", "The Walking Dead", "Interstellar", "Fight Club", "Pulp Fiction",
+                            "Fast X", "The Dark Knight", "Game of Thrones", "Stranger Things",
+                            "Dangerous Dynasty House of Assad", "See"]
+            results = []
+            query_lower = query.lower().replace(" ", "")
+            for title in movie_titles:
+                title_lower = title.lower().replace(" ", "")
+                if query_lower in title_lower or sum(c1 == c2 for c1, c2 in zip(query_lower, title_lower)) > len(query_lower) * 0.7:
+                    alt_response = search_omdb(title)
+                    if alt_response and alt_response.get("Response") == "True":
+                        results.append(alt_response)
+                        break
+            
+            if not results:
+                bot.delete_message(chat_id, waiting_message.message_id)
+                bot.reply_to(message, "<b>⚡ ما لقيت شي، جرب اسم تاني!</b>", parse_mode="HTML")
+                return
+            
+            response = results[0]
+        
+        title = response.get("Title")  # العنوان بالإنجليزي
+        plot = GoogleTranslator(source='auto', target='ar').translate(response.get("Plot", "غير متوفر"))
+        year = response.get("Year", "غير معروف")
+        rating = response.get("imdbRating", "غير معروف")
+        genre = GoogleTranslator(source='auto', target='ar').translate(response.get("Genre", "غير معروف"))
+        runtime = response.get("Runtime", "غير معروف")
+        director = GoogleTranslator(source='auto', target='ar').translate(response.get("Director", "غير معروف"))
+        actors = response.get("Actors", "غير معروف")
+        imdb_id = response.get("imdbID")
+        poster_url = response.get("Poster", "https://via.placeholder.com/150") if response.get("Poster") != "N/A" else "https://via.placeholder.com/150"
+        imdb_url = f"https://www.imdb.com/title/{imdb_id}/"
+        
+        reply_text = (
+            f"<b>{title}</b>\n"  # العنوان بالإنجليزي
+            f"<i>{plot}</i>\n"
+            f"<i>📅 السنة: {year}</i>\n"
+            f"<i>⭐ التقييم: {rating}/10</i>\n"
+            f"<i>🎭 النوع: {genre}</i>\n"
+            f"<i>⏱️ المدة: {runtime}</i>\n"
+            f"<i>🎥 الإخراج: {director}</i>\n"
             f"<i>🌟 البطولة: {actors}</i>\n\n"
             f"<i>{get_random_footer()}</i>"
         )
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("📄 صفحة IMDb", url=imdb_url))
+        markup.add(InlineKeyboardButton("🎬 فيلم مشابه", callback_data=f"similar:{title}"))
         
         bot.delete_message(chat_id, waiting_message.message_id)
         bot.send_photo(chat_id, poster_url, caption=reply_text[:1024], parse_mode="HTML", reply_markup=markup)
@@ -516,7 +532,33 @@ def handle_imdb(message):
         bot.delete_message(chat_id, waiting_message.message_id)
         bot.reply_to(message, "<b>⚠️ خطأ، جرب لاحقاً!</b>", parse_mode="HTML")
 
-# 🟢 أوامر Gemini مع التحقق الذكي
+# 🟢 معالجة زر "فيلم مشابه"
+@bot.callback_query_handler(func=lambda call: call.data.startswith("similar:"))
+def handle_similar_movie(call):
+    chat_id = call.message.chat.id
+    user_id = call.from_user.id
+    if user_id in banned_users or user_id in muted_users:
+        bot.answer_callback_query(call.id, "تم حظرك أو كتمك!")
+        return
+    
+    if is_rate_limited(user_id):
+        bot.answer_callback_query(call.id, "طول بالك شوي، إنت تُكسر مِن الطلبات 😂")
+        return
+    
+    movie = call.data.split(":", 1)[1]
+    response = get_gemini_response(f"اقترح فيلم مشابه لـ {movie} مع قصة مختصرة")
+    
+    if not response:
+        bot.edit_message_caption("<b>⚡ السيرفر مشغول حالياً</b>", chat_id, call.message.message_id, parse_mode="HTML")
+        bot.answer_callback_query(call.id, "السيرفر مشغول!")
+        return
+    
+    formatted_response = format_response(response, keep_english_titles=True)
+    reply_text = f"<b>🎬 فيلم مشابه لـ {movie}:</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
+    bot.edit_message_caption(reply_text, chat_id, call.message.message_id, parse_mode="HTML")
+    bot.answer_callback_query(call.id, "تم اقتراح فيلم مشابه!")
+
+# 🟢 /actor
 @bot.message_handler(commands=['actor'])
 def handle_actor(message):
     chat_id = message.chat.id
@@ -535,7 +577,7 @@ def handle_actor(message):
         return
     
     if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
         return
     
     text = message.text.strip().split(maxsplit=1)
@@ -549,7 +591,7 @@ def handle_actor(message):
         return
     
     waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
-    response = get_gemini_response(f"أعطني قائمة بأفضل أفلام أو مسلسلات الممثل {actor} مع قصة مختصرة")
+    response = get_gemini_response(f"قائمة بأفضل أفلام أو مسلسلات الممثل {actor} مع قصة مختصرة")
     bot.delete_message(chat_id, waiting_message.message_id)
     
     if not response:
@@ -560,6 +602,7 @@ def handle_actor(message):
     reply_text = f"<b>📌 أعمال {actor}:</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
     bot.reply_to(message, reply_text, parse_mode="HTML")
 
+# 🟢 /mindreader
 @bot.message_handler(commands=['mindreader'])
 def handle_mindreader(message):
     chat_id = message.chat.id
@@ -578,7 +621,7 @@ def handle_mindreader(message):
         return
     
     if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
         return
     
     questions = [
@@ -596,7 +639,7 @@ def process_mindreader_answers(message):
         bot.reply_to(message, "<b>⚠️ جاوب على كل الـ 3 أسئلة!</b>", parse_mode="HTML")
         return
     
-    prompt = f"بناءً على:\n1. نوع الفيلم: {answers[0]}\n2. قصير/طويل: {answers[1]}\n3. المزاج: {answers[2]}\nأعطني توصية فيلم مع قصة مختصرة بالعربي."
+    prompt = f"فيلم بناءً على:\n1. نوع الفيلم: {answers[0]}\n2. قصير/طويل: {answers[1]}\n3. المزاج: {answers[2]}\nمع قصة مختصرة بالعربي."
     response = get_gemini_response(prompt)
     if not response:
         bot.reply_to(message, "<b>⚡ السيرفر مشغول حالياً</b>", parse_mode="HTML")
@@ -606,6 +649,7 @@ def process_mindreader_answers(message):
     reply_text = f"<b>🧠 توقعتلك:</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
     bot.reply_to(message, reply_text, parse_mode="HTML")
 
+# 🟢 /detective
 @bot.message_handler(commands=['detective'])
 def handle_detective(message):
     chat_id = message.chat.id
@@ -616,7 +660,6 @@ def handle_detective(message):
     
     user_count.add(user_id)
     
-    # التحقق إذا كان في المجموعة
     if is_allowed(chat_id) and not is_admin(user_id):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🌟 جربني في الخاص", url=f"https://t.me/{bot.get_me().username}"))
@@ -624,7 +667,7 @@ def handle_detective(message):
         return
     
     if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
         return
     
     text = message.text.strip().split(maxsplit=1)
@@ -638,7 +681,7 @@ def handle_detective(message):
         return
     
     waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
-    response = get_gemini_response(f"اشرح نهاية الفيلم أو المسلسل أو الوثائقي {movie} بطريقة عبقرية وساخرة")
+    response = get_gemini_response(f"نهاية الفيلم أو المسلسل أو الوثائقي {movie} بطريقة عبقرية وساخرة")
     bot.delete_message(chat_id, waiting_message.message_id)
     
     if not response:
@@ -649,6 +692,7 @@ def handle_detective(message):
     reply_text = f"<b>🔍 تحليل نهاية {movie}:</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
     bot.reply_to(message, reply_text, parse_mode="HTML")
 
+# 🟢 /plotwist
 @bot.message_handler(commands=['plotwist'])
 def handle_plotwist(message):
     chat_id = message.chat.id
@@ -667,7 +711,7 @@ def handle_plotwist(message):
         return
     
     if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
         return
     
     text = message.text.strip().split(maxsplit=1)
@@ -681,7 +725,7 @@ def handle_plotwist(message):
         return
     
     waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
-    response = get_gemini_response(f"ضع نهاية جديدة ومجنونة للفيلم أو المسلسل أو الوثائقي {movie}")
+    response = get_gemini_response(f"نهاية جديدة ومجنونة للفيلم أو المسلسل أو الوثائقي {movie}")
     bot.delete_message(chat_id, waiting_message.message_id)
     
     if not response:
@@ -692,6 +736,7 @@ def handle_plotwist(message):
     reply_text = f"<b>🌀 نهاية جديدة لـ {movie}:</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
     bot.reply_to(message, reply_text, parse_mode="HTML")
 
+# 🟢 /aiwriter
 @bot.message_handler(commands=['aiwriter'])
 def handle_aiwriter(message):
     chat_id = message.chat.id
@@ -710,7 +755,7 @@ def handle_aiwriter(message):
         return
     
     if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
         return
     
     text = message.text.strip().split(maxsplit=1)
@@ -724,7 +769,7 @@ def handle_aiwriter(message):
         return
     
     waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
-    response = get_gemini_response(f"أنشئ حبكة فيلم بناءً على: {details}")
+    response = get_gemini_response(f"حبكة فيلم بناءً على: {details}")
     bot.delete_message(chat_id, waiting_message.message_id)
     
     if not response:
@@ -735,6 +780,7 @@ def handle_aiwriter(message):
     reply_text = f"<b>🎬 حبكة الفيلم:</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
     bot.reply_to(message, reply_text, parse_mode="HTML")
 
+# 🟢 /realityshift
 @bot.message_handler(commands=['realityshift'])
 def handle_realityshift(message):
     chat_id = message.chat.id
@@ -753,7 +799,7 @@ def handle_realityshift(message):
         return
     
     if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
         return
     
     text = message.text.strip().split(maxsplit=1)
@@ -767,7 +813,7 @@ def handle_realityshift(message):
         return
     
     waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
-    response = get_gemini_response(f"حول هذا الحدث إلى فيلم هوليوودي: {event}")
+    response = get_gemini_response(f"فيلم هوليوودي بناءً على هذا الحدث: {event}")
     bot.delete_message(chat_id, waiting_message.message_id)
     
     if not response:
@@ -778,6 +824,7 @@ def handle_realityshift(message):
     reply_text = f"<b>🎭 فيلمك الهوليوودي:</b>\n\n{formatted_response}\n\n<i>{get_random_footer()}</i>"
     bot.reply_to(message, reply_text, parse_mode="HTML")
 
+# 🟢 /spoilermaster
 @bot.message_handler(commands=['spoilermaster'])
 def handle_spoilermaster(message):
     chat_id = message.chat.id
@@ -788,7 +835,6 @@ def handle_spoilermaster(message):
     
     user_count.add(user_id)
     
-    # التحقق إذا كان في المجموعة
     if is_allowed(chat_id) and not is_admin(user_id):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🌟 جربني في الخاص", url=f"https://t.me/{bot.get_me().username}"))
@@ -796,7 +842,7 @@ def handle_spoilermaster(message):
         return
     
     if is_rate_limited(user_id):
-        bot.reply_to(message, f"<b>⚠️ استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>طول بالك شوي، إنت تُكسر مِن الطلبات 😂</b>", parse_mode="HTML")
         return
     
     text = message.text.strip().split(maxsplit=1)
@@ -810,7 +856,7 @@ def handle_spoilermaster(message):
         return
     
     waiting_message = bot.reply_to(message, random.choice(WAITING_EMOJIS))
-    response = get_gemini_response(f"قم بحرق الفيلم أو المسلسل أو الوثائقي {movie} بأسلوب عامي سوري")
+    response = get_gemini_response(f"حرق للفيلم أو المسلسل أو الوثائقي {movie} بأسلوب عامي سوري")
     bot.delete_message(chat_id, waiting_message.message_id)
     
     if not response:
@@ -818,7 +864,7 @@ def handle_spoilermaster(message):
         return
     
     formatted_response = format_response(response, keep_english_titles=True)
-    initial_response = f"<b>تم حرق {movie}:</b>\n\n<i>بالاسلوب الي طلبتو غيرو ياعيوني؟ </i>\n\n{formatted_response}"
+    initial_response = f"<b>تم حرق {movie}:</b>\n\n<i>إليك وصفاً موجزاً لما حدث في النهاية بأسلوب عامي سوري:</i>\n\n{formatted_response}"
     
     reply_text = f"{initial_response}\n\n<i>{get_random_footer()}</i>"
     markup = InlineKeyboardMarkup()
@@ -838,7 +884,7 @@ def handle_spoiler_callback(call):
         return
     
     if is_rate_limited(user_id):
-        bot.answer_callback_query(call.id, f"استنى {RATE_LIMIT} 5 ثواني انتَ تُكسر مِن الطلبات 😒!")
+        bot.answer_callback_query(call.id, "طول بالك شوي، إنت تُكسر مِن الطلبات 😂")
         return
     
     style, movie = call.data.split(":", 1)
@@ -860,7 +906,7 @@ def handle_spoiler_callback(call):
     bot.edit_message_text(reply_text, chat_id, call.message.message_id, parse_mode="HTML")
     bot.answer_callback_query(call.id, "تم تحديث الحرق!")
 
-# 🟢 أمر خارق للمطور: /super_scan
+# 🟢 أوامر خارقة للمطور
 @bot.message_handler(commands=['super_scan'])
 def handle_super_scan(message):
     user_id = message.from_user.id
@@ -878,7 +924,6 @@ def handle_super_scan(message):
     
     try:
         if input_data.startswith("http"):
-            # فحص رابط
             response = requests.get(input_data, timeout=10)
             soup = BeautifulSoup(response.text, 'html.parser')
             title = soup.title.string if soup.title else "غير معروف"
@@ -896,8 +941,7 @@ def handle_super_scan(message):
                 f"<i>{get_random_footer()}</i>"
             )
         else:
-            # تحليل نص
-            response = get_gemini_response(f"قم بتحليل النص التالي واستخرج المعلومات المهمة: {input_data}")
+            response = get_gemini_response(f"تحليل النص التالي واستخراج المعلومات المهمة: {input_data}")
             if not response:
                 bot.delete_message(message.chat.id, waiting_message.message_id)
                 bot.reply_to(message, "<b>⚡ فشل التحليل، جرب لاحقاً!</b>", parse_mode="HTML")
@@ -917,7 +961,154 @@ def handle_super_scan(message):
         bot.delete_message(message.chat.id, waiting_message.message_id)
         bot.reply_to(message, "<b>⚠️ خطأ في الفحص، جرب لاحقاً!</b>", parse_mode="HTML")
 
-# 🟢 /wk (لوحة المطور مع الأمر الجديد)
+@bot.message_handler(commands=['server_status'])
+def handle_server_status(message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        bot.reply_to(message, "<b>⚠️ للمطورين فقط!</b>", parse_mode="HTML")
+        return
+    
+    try:
+        cpu_usage = os.popen("top -bn1 | grep 'Cpu(s)' | awk '{print $2}'").read().strip()
+        memory_usage = os.popen("free -m | grep 'Mem:' | awk '{print $3/$2 * 100.0}'").read().strip()
+        uptime = os.popen("uptime -p").read().strip()
+        
+        reply_text = (
+            f"<b>🖥️ حالة السيرفر:</b>\n\n"
+            f"<i>استخدام المعالج: {cpu_usage}%</i>\n"
+            f"<i>استخدام الذاكرة: {memory_usage}%</i>\n"
+            f"<i>مدة التشغيل: {uptime}</i>\n\n"
+            f"<i>{get_random_footer()}</i>"
+        )
+        bot.reply_to(message, reply_text, parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"⚠️ Server Status Error: {e}")
+        bot.reply_to(message, "<b>⚠️ خطأ في جلب الحالة!</b>", parse_mode="HTML")
+
+@bot.message_handler(commands=['backup'])
+def handle_backup(message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        bot.reply_to(message, "<b>⚠️ للمطورين فقط!</b>", parse_mode="HTML")
+        return
+    
+    waiting_message = bot.reply_to(message, "<b>💾 جاري عمل نسخة احتياطية...</b>", parse_mode="HTML")
+    try:
+        backup_data = {
+            "user_count": list(user_count),
+            "banned_users": list(banned_users),
+            "muted_users": list(muted_users),
+            "suggested_movies": list(suggested_movies),
+            "suggested_series": list(suggested_series),
+            "inline_cache": {k: [r.to_json() for r in v] for k, v in inline_cache.items()},
+            "omdb_cache": omdb_cache
+        }
+        with open("bot_backup.json", "w") as f:
+            json.dump(backup_data, f)
+        bot.delete_message(message.chat.id, waiting_message.message_id)
+        bot.reply_to(message, "<b>✅ تم عمل النسخة الاحتياطية!</b>", parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"⚠️ Backup Error: {e}")
+        bot.delete_message(message.chat.id, waiting_message.message_id)
+        bot.reply_to(message, "<b>⚠️ خطأ في النسخ!</b>", parse_mode="HTML")
+
+@bot.message_handler(commands=['restore'])
+def handle_restore(message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        bot.reply_to(message, "<b>⚠️ للمطورين فقط!</b>", parse_mode="HTML")
+        return
+    
+    waiting_message = bot.reply_to(message, "<b>🔄 جاري استعادة النسخة...</b>", parse_mode="HTML")
+    try:
+        with open("bot_backup.json", "r") as f:
+            backup_data = json.load(f)
+        
+        global user_count, banned_users, muted_users, suggested_movies, suggested_series, inline_cache, omdb_cache
+        user_count = set(backup_data["user_count"])
+        banned_users = set(backup_data["banned_users"])
+        muted_users = set(backup_data["muted_users"])
+        suggested_movies = set(backup_data["suggested_movies"])
+        suggested_series = set(backup_data["suggested_series"])
+        inline_cache = {k: [InlineQueryResultPhoto.parse_json(r) for r in v] for k, v in backup_data["inline_cache"].items()}
+        omdb_cache = backup_data["omdb_cache"]
+        
+        bot.delete_message(message.chat.id, waiting_message.message_id)
+        bot.reply_to(message, "<b>✅ تم استعادة النسخة!</b>", parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"⚠️ Restore Error: {e}")
+        bot.delete_message(message.chat.id, waiting_message.message_id)
+        bot.reply_to(message, "<b>⚠️ خطأ في الاستعادة!</b>", parse_mode="HTML")
+
+# 🟢 /broadcast محسن مع معالجة المجموعات المفقودة
+@bot.message_handler(commands=['broadcast'])
+def handle_broadcast(message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        bot.reply_to(message, "<b>⚠️ للمطورين فقط!</b>", parse_mode="HTML")
+        return
+    
+    text = message.text.strip().split(maxsplit=1)
+    if len(text) == 1:
+        bot.reply_to(message, "<b>⚠️ أدخل نص البث</b>\n<i>مثال: /broadcast تحديث جديد</i>", parse_mode="HTML")
+        return
+    
+    broadcast_msg = text[1]
+    waiting_message = bot.reply_to(message, "<b>📢 جاري البث...</b>", parse_mode="HTML")
+    successful_users = 0
+    
+    for user in user_count:
+        try:
+            bot.send_message(user, broadcast_msg, parse_mode="HTML")
+            successful_users += 1
+            time.sleep(0.1)
+        except Exception as e:
+            logging.error(f"⚠️ Broadcast Error for {user}: {e}")
+    
+    for group_id in ALLOWED_GROUPS.copy():
+        try:
+            bot.send_message(group_id, broadcast_msg, parse_mode="HTML")
+            successful_users += 1
+        except telebot.apihelper.ApiTelegramException as e:
+            if "chat not found" in str(e):
+                logging.warning(f"⚠️ المجموعة {group_id} غير موجودة، تم تجاهلها.")
+            else:
+                logging.error(f"⚠️ Broadcast Error for group {group_id}: {e}")
+    
+    bot.delete_message(message.chat.id, waiting_message.message_id)
+    bot.reply_to(message, f"<b>✅ تم البث لـ {successful_users} مستخدم ومجموعة!</b>", parse_mode="HTML")
+
+# 🟢 أمر جديد /set_groups للمطور
+@bot.message_handler(commands=['set_groups'])
+def handle_set_groups(message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        bot.reply_to(message, "<b>⚠️ للمطورين فقط!</b>", parse_mode="HTML")
+        return
+    
+    text = message.text.strip().split(maxsplit=1)
+    if len(text) == 1:
+        bot.reply_to(message, "<b>⚠️ أدخل الأمر والمجموعة</b>\n<i>مثال: /set_groups add -100123456789 أو /set_groups remove -100123456789</i>", parse_mode="HTML")
+        return
+    
+    args = text[1].split()
+    if len(args) < 2 or args[0] not in ["add", "remove"]:
+        bot.reply_to(message, "<b>⚠️ استخدم add أو remove ثم رقم المجموعة</b>", parse_mode="HTML")
+        return
+    
+    action, group_id = args[0], args[1]
+    try:
+        group_id = int(group_id)
+        if action == "add":
+            ALLOWED_GROUPS.add(group_id)
+            bot.reply_to(message, f"<b>✅ تم إضافة المجموعة {group_id} للمسموحة!</b>", parse_mode="HTML")
+        elif action == "remove":
+            ALLOWED_GROUPS.discard(group_id)
+            bot.reply_to(message, f"<b>✅ تم حذف المجموعة {group_id} من المسموحة!</b>", parse_mode="HTML")
+    except ValueError:
+        bot.reply_to(message, "<b>⚠️ رقم المجموعة غير صالح!</b>", parse_mode="HTML")
+
+# 🟢 /wk (لوحة المطور مع الأوامر الجديدة)
 @bot.message_handler(commands=['wk'])
 def handle_admin_panel(message):
     user_id = message.from_user.id
@@ -940,39 +1131,16 @@ def handle_admin_panel(message):
         "<i>/log</i> - آخر 10 أخطاء.\n"
         "<i>/toggle_command [command] [enable/disable]</i> - تفعيل/إلغاء أمر.\n"
         "<i>/add_admin [id]</i> - إضافة مطور.\n"
-        "<i>/super_scan [نص/رابط]</i> - فحص خارق للروابط أو النصوص.\n"
+        "<i>/super_scan [نص/رابط]</i> - فحص خارق.\n"
+        "<i>/server_status</i> - حالة السيرفر.\n"
+        "<i>/backup</i> - نسخة احتياطية.\n"
+        "<i>/restore</i> - استعادة النسخة.\n"
+        "<i>/set_groups [add/remove] [id]</i> - تعيين مجموعات مسموحة.\n"
         f"<i>{get_random_footer()}</i>"
     )
     bot.reply_to(message, help_text, parse_mode="HTML")
 
-# 🟢 أوامر المطور
-@bot.message_handler(commands=['broadcast'])
-def handle_broadcast(message):
-    user_id = message.from_user.id
-    if not is_admin(user_id):
-        bot.reply_to(message, "<b>⚠️ للمطورين فقط!</b>", parse_mode="HTML")
-        return
-    
-    text = message.text.strip().split(maxsplit=1)
-    if len(text) == 1:
-        bot.reply_to(message, "<b>⚠️ أدخل نص البث</b>\n<i>مثال: /broadcast تحديث جديد</i>", parse_mode="HTML")
-        return
-    
-    broadcast_msg = text[1]
-    waiting_message = bot.reply_to(message, "<b>📢 جاري البث...</b>", parse_mode="HTML")
-    for user in user_count:
-        try:
-            bot.send_message(user, f"<b>رسالة من المطور:</b>\n\n<i>{broadcast_msg}</i>", parse_mode="HTML")
-        except Exception as e:
-            logging.error(f"⚠️ Broadcast Error for {user}: {e}")
-    try:
-        bot.send_message(ALLOWED_GROUP_ID, f"<b>رسالة من المطور:</b>\n\n<i>{broadcast_msg}</i>", parse_mode="HTML")
-    except Exception as e:
-        logging.error(f"⚠️ Broadcast Error for group: {e}")
-    
-    bot.delete_message(message.chat.id, waiting_message.message_id)
-    bot.reply_to(message, "<b>✅ تم البث!</b>", parse_mode="HTML")
-
+# 🟢 أوامر المطور القديمة
 @bot.message_handler(commands=['stats'])
 def handle_stats(message):
     user_id = message.from_user.id
@@ -987,7 +1155,8 @@ def handle_stats(message):
         f"<i>المكتومين: {len(muted_users)}</i>\n"
         f"<i>المطورين: {len(ADMIN_IDS)}</i>\n"
         f"<i>حد التكرار: {RATE_LIMIT} ث</i>\n"
-        f"<i>الأوامر في الخاص: {'نعم' if enable_all_private else 'لا'}</i>\n\n"
+        f"<i>الأوامر في الخاص: {'نعم' if enable_all_private else 'لا'}</i>\n"
+        f"<i>المجموعات المسموحة: {len(ALLOWED_GROUPS)}</i>\n\n"
         f"<i>{get_random_footer()}</i>"
     )
     bot.reply_to(message, stats_text, parse_mode="HTML")
@@ -1113,7 +1282,7 @@ def handle_check_user(message):
 @bot.message_handler(commands=['enable_all'])
 def handle_enable_all(message):
     user_id = message.from_user.id
-    if not is_admin(user_id):
+    if not is_admin(userid):
         bot.reply_to(message, "<b>⚠️ للمطورين فقط!</b>", parse_mode="HTML")
         return
     
@@ -1228,7 +1397,7 @@ def handle_help(message):
     user_count.add(user_id)
     markup = InlineKeyboardMarkup()
     
-    if chat_id == ALLOWED_GROUP_ID:
+    if chat_id in ALLOWED_GROUPS:
         markup.add(InlineKeyboardButton("المطور", url=f"https://t.me/{DEV_USERNAME[1:]}"))
         markup.add(InlineKeyboardButton("قناة البوت", url=f"https://t.me/{CHANNEL_USERNAME[1:]}"))
         markup.add(InlineKeyboardButton("كروب التقنية", url=f"https://t.me/{TECH_GROUP[1:]}"))
@@ -1248,7 +1417,7 @@ def handle_help(message):
         "<i>/aiwriter [تفاصيل]</i> - حبكة فيلم.\n"
         "<i>/realityshift [حدث]</i> - حياتك فيلم.\n"
         "<i>/spoilermaster [فيلم]</i> - حرق بأساليب (خاص).\n"
-        "<i>/imdb [فيلم]</i> - تفاصيل IMDb."
+        "<i>/imdb [فيلم]</i> - تفاصيل IMDb مع فيلم مشابه."
     )
     bot.reply_to(message, help_text, parse_mode="HTML", reply_markup=markup)
 
@@ -1285,13 +1454,19 @@ def set_bot_commands():
     ]
     bot.set_my_commands(commands)
 
-# 🟢 تشغيل البوت
+# 🟢 تشغيل البوت مع تحسين الأداء وحل مشكلات Contabo
 if __name__ == "__main__":
-    print("🚀 TechnoSyria Strat!")
+    print("🚀هبد")
     set_bot_commands()
     while True:
         try:
-            bot.polling(none_stop=True, skip_pending=True)
+            bot.polling(none_stop=True, skip_pending=True, timeout=30, long_polling_timeout=30)
+        except requests.exceptions.ReadTimeout:
+            logging.error("⚠️ Read Timeout: زاد وقت الاستجابة، جاري إعادة المحاولة...")
+            time.sleep(10)
+        except requests.exceptions.ConnectionError:
+            logging.error("⚠️ Connection Error: مشكلة في الاتصال، جاري إعادة المحاولة...")
+            time.sleep(10)
         except Exception as e:
             logging.error(f"⚠️ Polling Error: {e}")
-            time.sleep(5)
+            time.sleep(10)
